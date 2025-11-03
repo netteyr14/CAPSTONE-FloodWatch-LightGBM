@@ -6,7 +6,7 @@ REM Start Waitress app on port 5002
 start cmd /k "python -m server.run_waitress --port=5002"
 
 REM Start RF MODEL on port 5002
-start cmd /k "python -m model.model_server"
+start cmd /k "python -m model.RF_MODEL"
 
 REM Start Nginx
 cd server\nginx-1.28.0
