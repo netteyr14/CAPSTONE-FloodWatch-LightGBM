@@ -7,22 +7,19 @@ import configparser
 config = configparser.ConfigParser()
 config.read('server/setting.conf')
 
-# -----------------------------
-# MAIN WORKER LOOP
-# -----------------------------
+
 def worker_loop(conn):
-    model = None
     made = 0
     idle = config.getfloat('rf_model', 'SLEEP_IDLE')
-    cur = conn.cursor(dictionary=True)
+    n_lags = 3
 
-    query = """
-        SELECT timestamp, temperature, humidity, node_1, node_2
+    # ---------- Initial training ----------
+    cur = conn.cursor(dictionary=True)
+    cur.execute("""
+        SELECT timestamp, temperature, humidity, node_1, node_2, node_name
         FROM dht11_random_forest
         ORDER BY timestamp DESC;
-    """
-    
-    cur.execute(query)
+    """)
     rows = cur.fetchall()
     cur.close()
 
@@ -30,58 +27,56 @@ def worker_loop(conn):
     df_all["timestamp"] = pd.to_datetime(df_all["timestamp"])
     df_all = df_all.set_index("timestamp")
 
-    df_with_lags = rf.enforce_fixed_interval(df_all, config['rf_model']['FREQUENCY']) #expanded and with proper resample values
-    df_with_lags = rf.make_lag_features(df_with_lags, n_lags=3)
+    df_clean = rf.clean_dataframe(df_all)
+    df_fixed = rf.enforce_fixed_interval(df_clean, config['rf_model']['FREQUENCY'])
+    df_lagged = rf.make_lag_features(df_fixed, n_lags=n_lags)
+    df_cap = rf.take_training_window(df_lagged, config.getint('rf_model', 'MIN_REQUIRED_TRAINSET'))
 
-    df_with_clean = rf.clean_dataframe(df_with_lags) # ayusin yung datatypes
+    print("\n🧠 DEBUG: DataFrame before training")
+    print(df_cap.head(10))
+    print("Shape:", df_cap.shape, "\n")
 
-    df_with_cap = rf.take_training_window(df_with_clean, config.getint('rf_model', 'MIN_REQUIRED_TRAINSET')) #capping rows
+    print("Model: RANDOM FOREST: Train sets - ", len(df_cap))
+    model_bundle = rf.train_model(df_cap)
 
-    print("Model: RANDOM FOREST: Train sets - ", len(df_with_cap))
-
-    initial_model = rf.train_model(df_with_cap)
-
-    if initial_model is not None:
+    if model_bundle[0] is not None:
         print("[Model trained successfully!]")
     else:
         print("[Model training failed!]")
 
+    # ---------- Loop ----------
     while True:
         job = rf.claim_job(conn)
         if not job:
             print("No job found, sleeping...")
             time.sleep(idle)
-            idle = min(2.0, idle * 1.5) # extend the waiting/sleep only until 2
+            idle = min(2.0, idle * 1.5)
             continue
 
-        idle = config.getfloat('rf_model', 'SLEEP_IDLE') # resets back to 0.3s
+        idle = config.getfloat('rf_model', 'SLEEP_IDLE')
         node = job["node_name"]
         ts_for_insert_and_queue = pd.to_datetime(job["ts"])
-        print(f"---Processing job from node '{node}' at {ts_for_insert_and_queue}")
+        print(f"\n---Processing job from node '{node}' at {ts_for_insert_and_queue}")
 
-         # Step 1: Fetch latest raw data again before predicting
-        latest_rows = rf.fetch_latest_rows(node)
+        latest_rows = rf.fetch_rows_upto(node, ts_for_insert_and_queue)
+        df_latest = rf.clean_dataframe(latest_rows)
 
-        df_latest = rf.clean_dataframe(latest_rows) #with datatypes na tama na
-
-        if len(df_latest) < config.getint('rf_model', 'MIN_REQUIRED_ROWS'):
+        if len(df_latest) < config.getint('rf_model', 'MIN_REQUIRED_ROWS') or len(df_latest) < n_lags:
             print(f"***Node '{node}' has insufficient data ({len(df_latest)} rows). Skipping prediction.")
             rf.job_fail(conn, node, ts_for_insert_and_queue, reason="Insufficient data for prediction")
-            continue  # move to next job
+            continue
 
-        df_latest = rf.enforce_fixed_interval(df_latest, config['rf_model']['FREQUENCY']) #expanded and with proper resample values
-        
-        #print(df_latest)
+        df_latest = rf.enforce_fixed_interval(df_latest, config['rf_model']['FREQUENCY'])
+        print("\n🧩 DEBUG: DataFrame before prediction")
+        print(df_latest.tail(10))
+        print("Shape:", df_latest.shape, "\n")
 
-        # Step 2: Get last raw timestamp (most recent sensor timestamp)
         last_raw_ts = ts_for_insert_and_queue
-
-        # Step 3: Predict next temperature using lagged input
         predict_ts, predict_value = rf.predict_next_step(
-            model=initial_model,
+            model_bundle=model_bundle,
             df_recent=df_latest,
             last_raw_ts=last_raw_ts,
-            n_lags=3
+            n_lags=n_lags
         )
 
         if predict_value is not None:
@@ -100,15 +95,14 @@ def worker_loop(conn):
                 print("Failed to save prediction:", e)
 
             rf.job_success(conn, node, ts_for_insert_and_queue)
-            made = made + 1
+            made += 1
             print(f"Retrain Count{config['rf_model']['RETRAIN_AFTER']}: {made}")
-            
-            if made >= config.getint('rf_model', 'RETRAIN_AFTER'): # retrain here
 
+            if made >= config.getint('rf_model', 'RETRAIN_AFTER'):
                 print("[Retraining model with latest data...]")
-                cur = conn.cursor(dictionary=True) #CHANGE SELECT QUERY!!!
+                cur = conn.cursor(dictionary=True)
                 cur.execute("""
-                    SELECT timestamp, temperature, humidity, node_1, node_2 
+                    SELECT timestamp, temperature, humidity, node_1, node_2, node_name
                     FROM dht11_random_forest
                     ORDER BY timestamp DESC;
                 """)
@@ -119,12 +113,17 @@ def worker_loop(conn):
                 df_all["timestamp"] = pd.to_datetime(df_all["timestamp"])
                 df_all = df_all.set_index("timestamp")
 
-                df_all = rf.enforce_fixed_interval(df_all, config['rf_model']['FREQUENCY']) #expanded and with proper resample values
-                df_all = rf.make_lag_features(df_all, n_lags=3)
-                df_all = rf.take_training_window(df_all, config.getint('rf_model', 'MIN_REQUIRED_TRAINSET'))
+                df_clean = rf.clean_dataframe(df_all)
+                df_fixed = rf.enforce_fixed_interval(df_clean, config['rf_model']['FREQUENCY'])
+                df_lagged = rf.make_lag_features(df_fixed, n_lags=n_lags)
+                df_cap = rf.take_training_window(df_lagged, config.getint('rf_model', 'MIN_REQUIRED_TRAINSET'))
 
-                model = rf.train_model(df_all)
-                if model is not None:
+                print("\n🧠 DEBUG: DataFrame before retraining")
+                print(df_cap.head(10))
+                print("Shape:", df_cap.shape, "\n")
+
+                model_bundle = rf.train_model(df_cap)
+                if model_bundle[0] is not None:
                     print("[Model retrained successfully!]")
                     made = 0
         else:
@@ -132,9 +131,6 @@ def worker_loop(conn):
             rf.job_fail(conn, node, ts_for_insert_and_queue, reason="Prediction step failed")
 
 
-# -----------------------------
-# MAIN ENTRY POINT
-# -----------------------------
 if __name__ == "__main__":
     try:
         conn = pool.get_connection()
@@ -142,5 +138,8 @@ if __name__ == "__main__":
     except Exception as e:
         print("Error:", e)
     finally:
-        if conn and conn.is_connected():
-            conn.close()
+        try:
+            if conn and conn.is_connected():
+                conn.close()
+        except Exception:
+            pass
