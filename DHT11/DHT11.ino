@@ -4,26 +4,47 @@
 #include <Wire.h>
 #include <LiquidCrystal_I2C.h>
 
+// -------------------------------
+// Sensor Configuration
+// -------------------------------
 #define DHTPIN 4
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
 
-LiquidCrystal_I2C lcd(0x27, 16, 2); // 0x27, 16x2
+// -------------------------------
+// LCD Configuration
+// -------------------------------
+LiquidCrystal_I2C lcd(0x27, 16, 2); // address 0x27, 16x2 LCD
 
+// -------------------------------
+// WiFi Configuration
+// -------------------------------
 String ssid;
 String password;
-const char* serverUrl = "http://192.168.0.100:8080/node/node_2/insert_queue";
 
+// Update this with your server’s IP and Flask port
+const char* serverBaseUrl = "http://192.168.1.2:8080";  
+String node_name = "node_1";  // same as Flask route: /node/node_2/insert_queue
+
+// -------------------------------
+// Node Information
+// -------------------------------
+int node_num = 1;  // match with node_name
+int site_num = 1;  // optional, defaults to 1 in Flask
+
+// -------------------------------
+// Timers
+// -------------------------------
 unsigned long lastPostMs = 0;
-const unsigned long postIntervalMs = 60000; // 60s
+const unsigned long postIntervalMs = 60000; // 60 seconds
 
 unsigned long lastDhtReadMs = 0;
-const unsigned long dhtIntervalMs = 2000;   // read DHT every 2s
-int node_num = 1;
+const unsigned long dhtIntervalMs = 2000;   // 2 seconds
 
-// int counter_retrain = 1; // fixed name
+// -------------------------------
+// Helper Functions
+// -------------------------------
 
-// --- Function to get user input from Serial Monitor ---
 String getInput(const String& label) {
   Serial.print(label);
   while (Serial.available() == 0) {
@@ -34,7 +55,6 @@ String getInput(const String& label) {
   return input;
 }
 
-// --- Connect to WiFi (blocking with limited retries) ---
 void connectToWiFi() {
   Serial.println("*Attempting to connect to WiFi*...");
   WiFi.mode(WIFI_STA);
@@ -60,21 +80,23 @@ void connectToWiFi() {
   }
 }
 
+// -------------------------------
+// Setup
+// -------------------------------
 void setup() {
   Serial.begin(115200);
-  // Wait for Serial (harmless on ESP32; prevents losing the first prompts)
   while (!Serial) { delay(10); }
 
-  // I2C (explicit for ESP32)
+  // Initialize LCD and DHT
   Wire.begin(21, 22);
   lcd.init();
   lcd.backlight();
   lcd.clear();
   lcd.setCursor(0, 0);
   lcd.print("DHT11 Sensor");
-
   dht.begin();
 
+  // Ask WiFi credentials
   Serial.println("\n--- ESP32 WiFi Setup ---");
   ssid = getInput("Enter WiFi SSID: ");
   password = getInput("Enter WiFi Password: ");
@@ -83,16 +105,19 @@ void setup() {
   connectToWiFi();
 }
 
+// -------------------------------
+// Loop
+// -------------------------------
 void loop() {
   unsigned long now = millis();
 
-  // Reconnect WiFi if needed (non-blocking-ish)
+  // Auto reconnect every ~5s if disconnected
   if (WiFi.status() != WL_CONNECTED && (now % 5000 < 50)) {
     Serial.println("WiFi not connected. Reconnecting...");
     connectToWiFi();
   }
 
-  // --- Periodic DHT read ---
+  // --- Periodic DHT Read ---
   static float humidity = NAN;
   static float temperature = NAN;
 
@@ -102,7 +127,7 @@ void loop() {
     temperature = dht.readTemperature();
   }
 
-  // --- LCD display ---
+  // --- LCD Display ---
   if (!isnan(humidity) && !isnan(temperature)) {
     lcd.setCursor(0, 0);
     lcd.print("Temp:" + String(temperature, 1) + "C   ");
@@ -115,7 +140,7 @@ void loop() {
     lcd.print("Check DHT11       ");
   }
 
-  // --- Post every 60 seconds ---
+  // --- Post to Flask every 60 seconds ---
   if (now - lastPostMs >= postIntervalMs) {
     lastPostMs = now;
 
@@ -124,42 +149,40 @@ void loop() {
       return;
     }
 
-    // if (counter_retrain > 10) {   // reset condition
-    //   Serial.println("🔁 counter_retrain reached 10 — resetting to 1");
-    //   counter_retrain = 1;
-    // }
+    // Construct URL dynamically
+    String url = String(serverBaseUrl) + "/node/" + node_name + "/insert_queue";
 
-    // Build JSON payload
+    // Construct JSON payload
     String payload = "{";
     payload += "\"temperature\":" + String(temperature, 1) + ",";
     payload += "\"humidity\":" + String(humidity, 1) + ",";
-    // payload += "\"node_name\": \"node_1\",";  // no need for this kasi meron namna <node_name sa route>
-    payload += "\"node_num\": "+ String(node_num);
+    payload += "\"node_num\":" + String(node_num) + ",";
+    payload += "\"site_num\":" + String(site_num);
     payload += "}";
 
-
+    Serial.println("\n--- Sending POST ---");
+    Serial.println("URL: " + url);
     Serial.println("Payload: " + payload);
 
     if (WiFi.status() == WL_CONNECTED) {
       WiFiClient client;
       HTTPClient http;
-      if (http.begin(client, serverUrl)) {
+      if (http.begin(client, url)) {
         http.addHeader("Content-Type", "application/json");
         int code = http.POST(payload);
         if (code > 0) {
-          Serial.println("POST sent. Code: " + String(code));
+          Serial.println("✅ POST sent. Code: " + String(code));
           String resp = http.getString();
           Serial.println("Response: " + resp);
-          // counter_retrain += 1; // increment counter
         } else {
-          Serial.println("POST failed. Code: " + String(code));
+          Serial.println("❌ POST failed. Code: " + String(code));
         }
         http.end();
       } else {
-        Serial.println("HTTP begin() failed.");
+        Serial.println("❌ HTTP begin() failed.");
       }
     } else {
-      Serial.println("Skipped POST: WiFi not connected.");
+      Serial.println("⚠️ Skipped POST: WiFi not connected.");
     }
   }
 }

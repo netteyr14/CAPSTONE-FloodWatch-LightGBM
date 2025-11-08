@@ -16,8 +16,8 @@ def worker_loop(conn):
     # ---------- Initial training ----------
     cur = conn.cursor(dictionary=True)
     cur.execute("""
-        SELECT timestamp, temperature, humidity, node_1, node_2, node_name
-        FROM dht11_random_forest
+        SELECT timestamp, temperature, humidity, node_name, site_name
+        FROM vw_node_site_readings
         ORDER BY timestamp DESC;
     """)
     rows = cur.fetchall()
@@ -32,11 +32,11 @@ def worker_loop(conn):
     df_lagged = rf.make_lag_features(df_fixed, n_lags=n_lags)
     df_cap = rf.take_training_window(df_lagged, config.getint('rf_model', 'MIN_REQUIRED_TRAINSET'))
 
-    print("\n🧠 DEBUG: DataFrame before training")
+    print("\nDEBUG: DataFrame before training")
     print(df_cap.head(10))
     print("Shape:", df_cap.shape, "\n")
 
-    print("Model: RANDOM FOREST: Train sets - ", len(df_cap))
+    print("Model: LightGBM: Train sets - ", len(df_cap))
     model_bundle = rf.train_model(df_cap)
 
     if model_bundle[0] is not None:
@@ -67,7 +67,7 @@ def worker_loop(conn):
             continue
 
         df_latest = rf.enforce_fixed_interval(df_latest, config['rf_model']['FREQUENCY'])
-        print("\n🧩 DEBUG: DataFrame before prediction")
+        print("\nDEBUG: DataFrame before prediction")
         print(df_latest.tail(10))
         print("Shape:", df_latest.shape, "\n")
 
@@ -102,8 +102,8 @@ def worker_loop(conn):
                 print("[Retraining model with latest data...]")
                 cur = conn.cursor(dictionary=True)
                 cur.execute("""
-                    SELECT timestamp, temperature, humidity, node_1, node_2, node_name
-                    FROM dht11_random_forest
+                    SELECT timestamp, temperature, humidity, node_name, site_name
+                    FROM vw_node_site_readings
                     ORDER BY timestamp DESC;
                 """)
                 rows = cur.fetchall()
@@ -118,7 +118,7 @@ def worker_loop(conn):
                 df_lagged = rf.make_lag_features(df_fixed, n_lags=n_lags)
                 df_cap = rf.take_training_window(df_lagged, config.getint('rf_model', 'MIN_REQUIRED_TRAINSET'))
 
-                print("\n🧠 DEBUG: DataFrame before retraining")
+                print("\nDEBUG: DataFrame before retraining")
                 print(df_cap.head(10))
                 print("Shape:", df_cap.shape, "\n")
 
