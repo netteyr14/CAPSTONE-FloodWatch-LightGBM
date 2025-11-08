@@ -820,3 +820,13 @@
 2025/11/06 12:16:00 [notice] 9928#7480: signal process started
 2025/11/06 12:41:04 [notice] 9272#6268: signal process started
 2025/11/06 13:24:50 [notice] 11200#7600: signal process started
+2025/11/07 23:13:54 [notice] 14252#7160: signal process started
+2025/11/07 23:15:19 [notice] 15524#14464: signal process started
+2025/11/07 23:15:36 [notice] 212#16152: signal process started
+2025/11/07 23:20:14 [notice] 6640#4464: signal process started
+2025/11/07 23:24:52 [notice] 15660#8188: signal process started
+2025/11/07 23:30:53 [notice] 8824#11600: signal process started
+2025/11/07 23:42:44 [notice] 5388#13832: signal process started
+2025/11/07 23:44:40 [notice] 15556#15400: signal process started
+2025/11/07 23:52:33 [emerg] 3036#3028: host not found in upstream "localhost:5001" in D:\CAPSTONE_RANDOM_FOREST\server\nginx-1.28.0/conf/nginx.conf:38
+2025/11/08 02:01:08 [notice] 3940#10712: signal process started

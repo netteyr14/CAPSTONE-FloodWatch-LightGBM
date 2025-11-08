@@ -12,7 +12,7 @@ LiquidCrystal_I2C lcd(0x27, 16, 2); // 0x27, 16x2
 
 String ssid;
 String password;
-const char* serverUrl = "http://192.168.1.2:8080/node/node_2/insert_queue";
+const char* serverUrl = "http://192.168.0.100:8080/node/node_2/insert_queue";
 
 unsigned long lastPostMs = 0;
 const unsigned long postIntervalMs = 60000; // 60s
