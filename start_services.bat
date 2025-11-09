@@ -13,7 +13,7 @@ start cmd /k "python -m server.run_waitress --port=5002"
 REM ----------------------------------------
 REM Start RF model (logs + live console)
 REM ----------------------------------------
-start cmd /k "python -m model.RF_MODEL"
+start cmd /k "python -m model.LGBM_MODEL"
 
 REM ----------------------------------------
 REM Start Nginx

@@ -138,7 +138,7 @@ def make_lag_features(df, n_lags):
     need_cols = []
 
     for c in feat.columns:
-        if c.startwith("temp_lag") or c.startwith("hum_lag"):
+        if c.startswith("temp_lag") or c.startswith("hum_lag"):
             need_cols.append(c)
     need_cols.append("target_next_temp")
     need_cols.append("node_name")
