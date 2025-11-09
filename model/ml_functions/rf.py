@@ -115,11 +115,7 @@ def clean_dataframe(rows):
 
 def enforce_fixed_interval(df, frequency):
     df = df.sort_index()
-    df = df[~df.index.duplicated(keep="last")]
-
-    for col in ["node_name", "site_name"]:
-        if col not in df.columns:
-            df[col] = pd.NA
+    df = df[~df.index.duplicated(keep="last")] # removes duplicates pero iwan yung last
 
     df = df.resample(frequency).agg({
         "temperature": "mean",
@@ -129,17 +125,24 @@ def enforce_fixed_interval(df, frequency):
     })
 
     df[["temperature", "humidity"]] = df[["temperature", "humidity"]].interpolate(method="time")
-    df = df.ffill().bfill()
+    df = df.ffill().bfill() #fill forware and backward
     return df
 
 # FEATURES
 def make_lag_features(df, n_lags):
     feat = df.copy()
     for lag_number in range(1, n_lags + 1):
-        feat[f"temp_lag{lag_number}"] = feat["temperature"].shift(lag_number)
+        feat[f"temp_lag{lag_number}"] = feat["temperature"].shift(lag_number) #+1 or higher will move/shift data downward 
         feat[f"hum_lag{lag_number}"] = feat["humidity"].shift(lag_number)
-    feat["target_next_temp"] = feat["temperature"].shift(-1)
-    need_cols = [c for c in feat.columns if c.startswith("temp_lag") or c.startswith("hum_lag")] + ["target_next_temp"]
+    feat["target_next_temp"] = feat["temperature"].shift(-1) # -1 moves/shift data upward
+    need_cols = []
+
+    for c in feat.columns:
+        if c.startwith("temp_lag") or c.startwith("hum_lag"):
+            need_cols.append(c)
+    need_cols.append("target_next_temp")
+    need_cols.append("node_name")
+    need_cols.append("site_name")
     feat = feat.dropna(subset=need_cols)
     return feat
 
@@ -177,12 +180,12 @@ def train_model(df):
     params = {
         "objective": "regression", # numeric output
         "metric": "rmse",   # metric evalution during training error correction. just like auto arima's aic and bic scoring to get pdq's
-        "boosting_type": "gbdt", #Gradient Boosted Decision Trees, the default and most widely used boosting method in LightGBM.
+        "boosting_type": "gbdt", #Gradient Boosted Decision Trees, the default and most widely used boosting method in LightGBM. An algo
         "num_leaves": 31, #More leaves = more complex model (higher accuracy but higher overfitting risk)
-        "learning_rate": 0.05,
-        "feature_fraction": 0.9,
-        "bagging_fraction": 0.8,
-        "bagging_freq": 5,
+        "learning_rate": 0.05, #Smaller values slower but more accurate learning (safer) and Larger values faster but risk overshooting or overfitting.
+        "feature_fraction": 0.9, #uses 90 of all available features. Other features is. mag cycle to sa lahat ng table randomly to use for bagging sample
+        "bagging_fraction": 0.8, #use 80 of all total rows
+        "bagging_freq": 5, #how many random 
         "verbose": -1
     }
 
