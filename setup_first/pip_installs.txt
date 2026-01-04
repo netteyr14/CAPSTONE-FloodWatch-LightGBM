@@ -1,0 +1,6 @@
+pip install flask
+pip install flask-cors
+pip install waitress
+pip install lightgbm
+pip install pandas
+pip install mysql-connector-python
