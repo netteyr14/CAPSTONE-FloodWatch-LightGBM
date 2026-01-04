@@ -16,6 +16,7 @@ def insert(node_name):
 
     try:
         temperature = float(json_data["temperature"])
+        ultrasonic = float(json_data.get("ultrasonic", 0))
         humidity = float(json_data["humidity"])
         node_id = int(json_data.get("node_num", 1))
         site_id = int(json_data.get("site_num", 1))
