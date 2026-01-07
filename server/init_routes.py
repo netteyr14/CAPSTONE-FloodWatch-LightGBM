@@ -3,7 +3,7 @@ from flask_cors import CORS
 
 app = Flask(__name__)
 # Allow all origins for /node/* (good for dev; tighten later for prod)
-CORS(app, resources={r"/node/*": {"origins": "*"}})
+CORS(app, resources={r"/node/*": {"origins": "https://flutter-web-app-8m59.onrender.com"}})
 
 def create_app():
     # Import and register blueprints
