@@ -17,11 +17,11 @@ def worker_loop(conn):
     cur = conn.cursor(dictionary=True)
     cur.execute(
         """
-        SELECT timestamp, temperature, humidity, node_name, site_name
+        SELECT TIMESTAMP, temperature, humidity, node_name, site_name, isactive
         FROM vw_node_site_readings
-        ORDER BY timestamp DESC;
+        ORDER BY TIMESTAMP DESC; 
     """
-    )
+    )# isactive = 1 is already filtered in the vw_node_site_readings view
     rows = cur.fetchall()
     cur.close()
 
@@ -60,23 +60,24 @@ def worker_loop(conn):
         idle = config.getfloat("lgbm_model", "SLEEP_IDLE")
 
         node_id = job["node_id"]
-        print(node_id)
+        site_id = job["site_id"]
         ts_for_insert_and_queue = pd.to_datetime(job["ts"])
-        print(f"\n---Processing job from node '{node_id}' at {ts_for_insert_and_queue}")
+        print(f"\n---Processing job from node '{node_id}' and site '{site_id}' at {ts_for_insert_and_queue}")
 
-        latest_rows = lgbm.fetch_rows_upto(node_id, ts_for_insert_and_queue)  #
-        df_latest = lgbm.clean_dataframe(latest_rows)
+        latest_rows = lgbm.fetch_rows_upto(node_id, site_id, ts_for_insert_and_queue)  #
+        df_latest = lgbm.clean_dataframe(latest_rows)#250 latest rows of specific node_id and site_id
 
         if (
             len(df_latest) < config.getint("lgbm_model", "MIN_REQUIRED_ROWS")
             or len(df_latest) < n_lags
         ):
             print(
-                f"***Node '{node_id}' has insufficient data ({len(df_latest)} rows). Skipping prediction."
+                f"***Node '{node_id}' at site '{site_id}' has insufficient data ({len(df_latest)} rows). Skipping prediction."
             )
             lgbm.job_fail(
                 conn,
                 node_id,
+                site_id,
                 ts_for_insert_and_queue,
                 reason="Insufficient data for prediction",
             )  #
@@ -91,10 +92,10 @@ def worker_loop(conn):
 
         last_raw_ts = ts_for_insert_and_queue
         predict_ts, predict_value = lgbm.predict_next_step(
-            model_bundle=model_bundle,
-            df_recent=df_latest,
-            last_raw_ts=last_raw_ts,
-            n_lags=n_lags,
+            model_bundle=model_bundle, #trained model
+            df_recent=df_latest, #input data for prediction
+            last_raw_ts=last_raw_ts, #timestamp of last raw reading
+            n_lags=n_lags, #number of lag features for input to match training set
         )
 
         if predict_value is not None:
@@ -106,12 +107,13 @@ def worker_loop(conn):
                 lgbm.job_fail(
                     conn,
                     node_id,
+                    site_id,
                     ts_for_insert_and_queue,
                     reason="Missing site_id for node",
                 )  #
                 continue
 
-            print(f"---Predicted {predict_value:.2f}°C for {predict_ts}")
+            print(f"---Predicted {predict_value:.2f}°C for site_id {site_id} and node_id {node_id} at {predict_ts}")
 
             try:
                 cur = conn.cursor()
@@ -120,8 +122,6 @@ def worker_loop(conn):
                     INSERT INTO tbl_predicted_and_timestamp
                         (node_id, site_id, predicted_timestamp, predicted_temperature)
                     VALUES (%s, %s, %s, %s)
-                    ON DUPLICATE KEY UPDATE
-                        predicted_temperature = VALUES(predicted_temperature)
                 """,
                     (node_id, site_id, predict_ts, predict_value),
                 )
@@ -133,12 +133,13 @@ def worker_loop(conn):
                 lgbm.job_fail(
                     conn,
                     node_id,
+                    site_id,
                     ts_for_insert_and_queue,
                     reason=f"DB insert failed: {e}",
                 )  #
                 continue
 
-            lgbm.job_success(conn, node_id, ts_for_insert_and_queue)  #
+            lgbm.job_success(conn, node_id, site_id, ts_for_insert_and_queue)  #
             made += 1
             print(f"Retrain Count {config['lgbm_model']['RETRAIN_AFTER']}: {made}")
 
@@ -147,7 +148,7 @@ def worker_loop(conn):
                 cur = conn.cursor(dictionary=True)
                 cur.execute(
                     """
-                    SELECT timestamp, temperature, humidity, node_name, site_name
+                    SELECT timestamp, temperature, humidity, node_name, site_name, isactive
                     FROM vw_node_site_readings
                     ORDER BY timestamp DESC;
                 """
@@ -179,7 +180,7 @@ def worker_loop(conn):
         else:
             print("[Prediction failed!]")
             lgbm.job_fail(
-                conn, node_id, ts_for_insert_and_queue, reason="Prediction step failed"
+                conn, node_id, site_id, ts_for_insert_and_queue, reason="Prediction step failed"
             )
 
 

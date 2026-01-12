@@ -29,56 +29,59 @@ def insert():
             400,
         )
 
-    # Get DB connection
-    conn = pool.get_connection()
-    cursor = conn.cursor(dictionary=True)
+    try:
+        # Get DB connection
+        conn = pool.get_connection()
+        cursor = conn.cursor(dictionary=True)
 
-    # Insert reading
-    insert_sql = """
-        INSERT INTO tbl_raw_reading (timestamp, temperature, humidity, node_id, site_id)
-        VALUES (NOW(3), %s, %s, %s, %s)
-    """
-    cursor.execute(insert_sql, (temperature, humidity, node_id, site_id))
-    new_id = cursor.lastrowid
-
-    # Get timestamp of newly inserted row
-    cursor.execute(
+        # Insert reading
+        insert_sql = """
+            INSERT INTO tbl_raw_reading (timestamp, temperature, humidity, node_id, site_id)
+            VALUES (NOW(3), %s, %s, %s, %s)
         """
-        SELECT timestamp FROM tbl_raw_reading
-        WHERE id=%s AND node_id=%s AND site_id=%s
-    """,
-        (new_id, node_id, site_id),
-    )
-    ts_row = cursor.fetchone()
-    ts = ts_row["timestamp"] if ts_row else None
+        cursor.execute(insert_sql, (temperature, humidity, node_id, site_id))
+        new_id = cursor.lastrowid
 
-    # Insert into prediction queue
-    cursor.execute(
-        """
-        INSERT IGNORE INTO tbl_queue (node_id, ts, site_id)
-        VALUES (%s, %s, %s)
-    """,
-        (node_id, ts, site_id),
-    )
+        # Get timestamp of newly inserted row
+        cursor.execute(
+            """
+            SELECT timestamp FROM tbl_raw_reading
+            WHERE id=%s AND node_id=%s AND site_id=%s
+        """,
+            (new_id, node_id, site_id),
+        )
+        ts_row = cursor.fetchone()
+        ts = ts_row["timestamp"] if ts_row else None
 
-    # Optional: get total row count
-    cursor.execute("SELECT COUNT(*) AS cnt FROM tbl_raw_reading")
-    total_rows = int(cursor.fetchone()["cnt"])
+        # Insert into prediction queue
+        cursor.execute(
+            """
+            INSERT IGNORE INTO tbl_queue (node_id, ts, site_id)
+            VALUES (%s, %s, %s)
+        """,
+            (node_id, ts, site_id),
+        )
 
-    conn.commit()
-    cursor.close()
-    conn.close()
+        # Optional: get total row count
+        cursor.execute("SELECT COUNT(*) AS cnt FROM tbl_raw_reading")
+        total_rows = int(cursor.fetchone()["cnt"])
 
-    return (
-        jsonify(
-            {
-                "message": "created",
-                "id": new_id,
-                "node_id": node_id,
-                "site_id": site_id,
-                "timestamp": str(ts),
-                "current_row_count": total_rows,
-            }
-        ),
-        201,
-    )
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+        return (
+            jsonify(
+                {
+                    "message": "created",
+                    "id": new_id,
+                    "node_id": node_id,
+                    "site_id": site_id,
+                    "timestamp": str(ts),
+                    "current_row_count": total_rows,
+                }
+            ),
+            201,
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500

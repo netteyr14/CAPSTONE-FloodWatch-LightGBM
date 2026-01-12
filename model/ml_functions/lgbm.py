@@ -8,22 +8,22 @@ config.read("server/setting.conf")
 
 
 # FETCHING DATA
-def fetch_rows_upto(node_id, ts, limit=250):
+def fetch_rows_upto(node_id, site_id, ts, limit=250):
     conn = pool.get_connection()
     try:
         cur = conn.cursor(dictionary=True)
         cur.execute(
             """
             SELECT timestamp, temperature, humidity, rr.node_id, rr.site_id, site_name, node_name
-            FROM tbl_raw_reading as rr
-                    join tbl_node_identity as ni on rr.node_id = ni.node_id and rr.site_id = ni.site_id
-                    join tbl_node_name as nn on rr.node_id = nn.node_id
-                    join tbl_site as s on rr.site_id = s.site_id
-            WHERE rr.node_id=%s AND timestamp <= %s
-            ORDER BY timestamp DESC
+            FROM tbl_raw_reading AS rr
+                    JOIN tbl_node_identity AS ni ON rr.node_id = ni.node_id AND rr.site_id = ni.site_id
+                    JOIN tbl_node_name AS nn ON rr.node_id = nn.node_id
+                    JOIN tbl_site AS s ON rr.site_id = s.site_id
+            WHERE rr.node_id=%s AND rr.site_id=%s AND TIMESTAMP <= %s
+            ORDER BY TIMESTAMP DESC
             LIMIT %s
         """,
-            (node_id, ts, limit),
+            (node_id, site_id, ts, limit),
         )
         rows = cur.fetchall()
         rows = list(reversed(rows))
@@ -42,7 +42,7 @@ def claim_job(conn):
     cur.execute("START TRANSACTION")
     cur.execute(
         """
-        SELECT node_id, ts FROM tbl_queue
+        SELECT node_id, site_id, ts FROM tbl_queue
         WHERE status='queued'
         ORDER BY ts ASC
         LIMIT 1
@@ -58,34 +58,34 @@ def claim_job(conn):
         """
         UPDATE tbl_queue
         SET status='processing', attempt=attempt+1
-        WHERE node_id=%s AND ts=%s
+        WHERE node_id=%s AND site_id=%s AND ts=%s
     """,
-        (row["node_id"], row["ts"]),
+        (row["node_id"], row["site_id"], row["ts"]),
     )
     cur.execute("COMMIT")
     cur.close()
     return row
 
 
-def job_success(conn, node_id, ts):
+def job_success(conn, node_id, site_id, ts):
     try:
         cur = conn.cursor()
         cur.execute(
             """
             UPDATE tbl_queue
             SET status='done', completed_at=NOW()
-            WHERE node_id=%s AND ts=%s
+            WHERE node_id=%s and site_id=%s AND ts=%s
         """,
-            (node_id, ts),
+            (node_id, site_id, ts),
         )
         conn.commit()
         cur.close()
-        print(f"Job success recorded for node '{node_id}' at {ts}")
+        print(f"Job success recorded for site_id {site_id} and node '{node_id}' at {ts}")
     except Exception as e:
-        print(f"Failed to mark job success for {node_id}: {e}")
+        print(f"Failed to mark job success for site_id {site_id} and node '{node_id}': {e}")
 
 
-def job_fail(conn, node_id, ts, reason=None):
+def job_fail(conn, node_id, site_id, ts, reason=None):
     try:
         cur = conn.cursor()
         if reason:
@@ -93,24 +93,24 @@ def job_fail(conn, node_id, ts, reason=None):
                 """
                 UPDATE tbl_queue
                 SET status='failed', completed_at=NOW(), fail_reason=%s
-                WHERE node_id=%s AND ts=%s
+                WHERE node_id=%s AND site_id=%s AND ts=%s
             """,
-                (reason, node_id, ts),
+                (reason, node_id, site_id, ts),
             )
         else:
             cur.execute(
                 """
                 UPDATE tbl_queue
                 SET status='failed', completed_at=NOW()
-                WHERE node_id=%s AND ts=%s
+                WHERE node_id=%s AND site_id=%s AND ts=%s
             """,
-                (node_id, ts),
+                (node_id, site_id, ts),
             )
         conn.commit()
         cur.close()
-        print(f"Job failed for node '{node_id}' at {ts}. Reason: {reason or 'Unknown'}")
+        print(f"Job failed for site_id {site_id} and node_id '{node_id}' at {ts}. Reason: {reason or 'Unknown'}")
     except Exception as e:
-        print(f"Failed to mark job as failed for {node_id}: {e}")
+        print(f"Failed to mark job as failed for site_id {site_id} and node_id {node_id}: {e}")
 
 
 # CLEANING / RESAMPLING
