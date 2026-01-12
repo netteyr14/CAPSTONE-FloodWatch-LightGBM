@@ -18,7 +18,7 @@ http {
     include       mime.types;
     default_type  application/octet-stream;
     # Define a shared memory zone to track clients
-    limit_req_zone $binary_remote_addr zone=api_limit:10m rate=5r/s;
+    limit_req_zone $http_x_forwarded_for zone=api_limit:10m rate=10r/s; # 10 requests per second
 
     #log_format  main  '$remote_addr - $remote_user [$time_local] "$request" '
     #                  '$status $body_bytes_sent "$http_referer" '
@@ -40,9 +40,10 @@ http {
     }
 
     server {
-        listen 8080;
-        server_name 192.168.1.2; #or localhost since nginx is running on the same machine with waitress that runs the Flask app
-
+        listen 8080; #for IPv4 support
+        listen [::]:8080; #for IPv6 support
+        # server_name _; #operates as a catch-all server
+        server_name 192.168.1.6:8080;
         #charset koi8-r;
 
         #Assets
@@ -55,7 +56,7 @@ http {
         #access_log  logs/host.access.log  main;
 
         location / {
-            limit_req zone=api_limit burst=10 nodelay;
+            limit_req zone=api_limit burst=20 nodelay;
             proxy_pass http://nodes_service;
             proxy_set_header Host $host;
             proxy_set_header X-Real-IP $remote_addr;
