@@ -71,6 +71,7 @@ def get_node_locations():
             pass
         conn.close()
 
+
 @floodwatch_bp.route("/<node_name>/info", methods=["GET"])
 def get_node_info(node_name):
     conn = pool.get_connection()
@@ -102,66 +103,53 @@ def get_node_info(node_name):
             pass
         conn.close()
 
+
 # ─────────────────────────────────────────────
 # NEW ENDPOINT: LATEST PREDICTION FOR A NODE
 # ─────────────────────────────────────────────
 
-@floodwatch_bp.route("/<node_name>/prediction", methods=["GET"])
-def get_node_prediction(node_name):
+
+@floodwatch_bp.route("/id/<int:node_id>/prediction", methods=["GET"])
+def get_node_prediction_by_id(node_id):
     """
-    GET /node/<node_name>/prediction
-
-    Returns the most recent predicted temperature for this node from
-    tbl_predicted_and_timestamp.
-
-    Response 200:
-    {
-      "node_name": "node_1",
-      "site_id": 1,
-      "predicted_temperature": 29.5,
-      "predicted_timestamp": "2025-11-16T02:11:00"
-    }
-
-    404 if no prediction found.
+    GET /node/id/<node_id>/prediction?site_id=1
     """
+    site_id = request.args.get("site_id", type=int)
+    if site_id is None:
+        return jsonify({"error": "site_id query parameter is required"}), 400
+
     conn = pool.get_connection()
     try:
         cur = conn.cursor(dictionary=True)
 
-        sql = """
+        cur.execute(
+            """
             SELECT
-                node_name,
+                node_id,
                 site_id,
                 predicted_temperature,
                 predicted_timestamp
             FROM tbl_predicted_and_timestamp
-            WHERE node_name = %s
+            WHERE node_id = %s
+              AND site_id = %s
             ORDER BY predicted_timestamp DESC
             LIMIT 1
-        """
-        cur.execute(sql, (node_name,))
+        """,
+            (node_id, site_id),
+        )
+
         row = cur.fetchone()
-
         if not row:
-            return jsonify({"error": "No prediction found for this node"}), 404
+            return jsonify({"error": "No prediction found"}), 404
 
-        # Ensure datetime is JSON-friendly
-        ts = row.get("predicted_timestamp")
-        if ts is not None:
-            row["predicted_timestamp"] = ts.isoformat()
+        if row["predicted_timestamp"]:
+            row["predicted_timestamp"] = row["predicted_timestamp"].isoformat()
 
         return jsonify(row), 200
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
     finally:
-        try:
-            cur.close()
-        except Exception:
-            pass
+        cur.close()
         conn.close()
-
 
 
 @floodwatch_bp.route("/login", methods=["POST"])
@@ -179,10 +167,12 @@ def admin_login():
     password = data.get("password")
 
     if not username or not password:
-        return jsonify({
-            "success": False,
-            "message": "Username and password are required."
-        }), 400
+        return (
+            jsonify(
+                {"success": False, "message": "Username and password are required."}
+            ),
+            400,
+        )
 
     conn = None
     cursor = None
@@ -203,24 +193,20 @@ def admin_login():
         admin = cursor.fetchone()
 
         if not admin:
-            return jsonify({
-                "success": False,
-                "message": "Invalid username or password."
-            }), 401
+            return (
+                jsonify({"success": False, "message": "Invalid username or password."}),
+                401,
+            )
 
         # No session used — return simple response
-        return jsonify({
-            "success": True,
-            "message": "Login successful.",
-            "admin": admin
-        }), 200
+        return (
+            jsonify({"success": True, "message": "Login successful.", "admin": admin}),
+            200,
+        )
 
     except Exception as e:
         print("Login error:", e)
-        return jsonify({
-            "success": False,
-            "message": "Internal server error."
-        }), 500
+        return jsonify({"success": False, "message": "Internal server error."}), 500
 
     finally:
         if cursor:
@@ -229,11 +215,6 @@ def admin_login():
             conn.close()
 
 
-
 @floodwatch_bp.route("/logout", methods=["POST"])
 def admin_logout():
-    return jsonify({
-        "success": True,
-        "message": "Logged out."
-    }), 200
-
+    return jsonify({"success": True, "message": "Logged out."}), 200

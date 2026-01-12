@@ -4,10 +4,10 @@ import argparse
 
 app = create_app()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=5000)
     args = parser.parse_args()
 
     print(f"[INFO] Starting Waitress on port {args.port}...")
-    serve(app, host='localhost', port=args.port, threads=20)
+    serve(app, host="0.0.0.0", port=args.port, threads=20)
