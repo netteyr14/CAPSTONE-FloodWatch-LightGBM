@@ -8,7 +8,7 @@ config.read("server/setting.conf")
 
 
 # FETCHING DATA
-def fetch_rows_upto(node_id, site_id, ts, limit=250):
+def fetch_rows_upto(node_id, site_id, ts):
     conn = pool.get_connection()
     try:
         cur = conn.cursor(dictionary=True)
@@ -21,9 +21,8 @@ def fetch_rows_upto(node_id, site_id, ts, limit=250):
                     JOIN tbl_site AS s ON rr.site_id = s.site_id
             WHERE rr.node_id=%s AND rr.site_id=%s AND TIMESTAMP <= %s
             ORDER BY TIMESTAMP DESC
-            LIMIT %s
         """,
-            (node_id, site_id, ts, limit),
+            (node_id, site_id, ts),
         )
         rows = cur.fetchall()
         rows = list(reversed(rows))
@@ -80,9 +79,13 @@ def job_success(conn, node_id, site_id, ts):
         )
         conn.commit()
         cur.close()
-        print(f"Job success recorded for site_id {site_id} and node '{node_id}' at {ts}")
+        print(
+            f"Job success recorded for site_id {site_id} and node '{node_id}' at {ts}"
+        )
     except Exception as e:
-        print(f"Failed to mark job success for site_id {site_id} and node '{node_id}': {e}")
+        print(
+            f"Failed to mark job success for site_id {site_id} and node '{node_id}': {e}"
+        )
 
 
 def job_fail(conn, node_id, site_id, ts, reason=None):
@@ -108,9 +111,13 @@ def job_fail(conn, node_id, site_id, ts, reason=None):
             )
         conn.commit()
         cur.close()
-        print(f"Job failed for site_id {site_id} and node_id '{node_id}' at {ts}. Reason: {reason or 'Unknown'}")
+        print(
+            f"Job failed for site_id {site_id} and node_id '{node_id}' at {ts}. Reason: {reason or 'Unknown'}"
+        )
     except Exception as e:
-        print(f"Failed to mark job as failed for site_id {site_id} and node_id {node_id}: {e}")
+        print(
+            f"Failed to mark job as failed for site_id {site_id} and node_id {node_id}: {e}"
+        )
 
 
 # CLEANING / RESAMPLING
@@ -156,9 +163,10 @@ def enforce_fixed_interval(df, frequency):
     )
 
     df[["temperature", "humidity"]] = df[["temperature", "humidity"]].interpolate(
-        method="time"
+        method="time", limit=5
     )
-    df = df.ffill().bfill()  # fill forware and backward
+    # df = df.ffill().bfill()  # fill forware and backward
+    # violate the integrity of data if we bfill and interpolate limit 5 is enough
     return df
 
 
@@ -235,10 +243,12 @@ def train_model(df):
     return model, categories_map, list(X.columns)
 
 
-# PREDICTION
+# PREDICTION - builds a 1 row with lag columns for prediction
 def prepare_predict_input(
     df, n_lags, categories_map=None, feature_columns=None
 ):  # builds the row input
+    if len(df) < n_lags:
+        raise ValueError("Not enough rows for lag prediction")
     feature_dict = {}
     for lag_number in range(1, n_lags + 1):
         feature_dict[f"temp_lag{lag_number}"] = float(
@@ -250,7 +260,11 @@ def prepare_predict_input(
     feature_dict["node_name"] = last["node_name"]
     feature_dict["site_name"] = last["site_name"]
 
-    X = pd.DataFrame([feature_dict])
+    try:
+        X = pd.DataFrame([feature_dict])
+    except Exception as e:
+        print("Error creating DataFrame:", e)
+        return None
 
     if categories_map:
         for col, cats in categories_map.items():

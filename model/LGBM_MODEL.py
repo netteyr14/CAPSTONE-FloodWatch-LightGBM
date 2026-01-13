@@ -11,7 +11,8 @@ config.read("server/setting.conf")
 def worker_loop(conn):
     made = 0
     idle = config.getfloat("lgbm_model", "SLEEP_IDLE")
-    n_lags = 3
+    FREQ = config["lgbm_model"]["FREQUENCY"]
+    n_lags = 23
 
     # ---------- Initial training ----------
     cur = conn.cursor(dictionary=True)
@@ -21,7 +22,7 @@ def worker_loop(conn):
         FROM vw_node_site_readings
         ORDER BY TIMESTAMP DESC; 
     """
-    )# isactive = 1 is already filtered in the vw_node_site_readings view
+    )  # isactive = 1 is already filtered in the vw_node_site_readings view
     rows = cur.fetchall()
     cur.close()
 
@@ -30,8 +31,12 @@ def worker_loop(conn):
     df_all = df_all.set_index("timestamp")
 
     df_clean = lgbm.clean_dataframe(df_all)
-    df_fixed = lgbm.enforce_fixed_interval(df_clean, config["lgbm_model"]["FREQUENCY"])
-    df_lagged = lgbm.make_lag_features(df_fixed, n_lags=n_lags)
+    df_lagged = (
+        df_clean.groupby(["node_name", "site_name"], group_keys=False)
+        .apply(lambda g: lgbm.enforce_fixed_interval(g, FREQ))
+        .groupby(["node_name", "site_name"], group_keys=False)
+        .apply(lambda g: lgbm.make_lag_features(g, n_lags=n_lags))
+    )
     df_cap = lgbm.take_training_window(
         df_lagged, config.getint("lgbm_model", "MIN_REQUIRED_TRAINSET")
     )
@@ -62,14 +67,18 @@ def worker_loop(conn):
         node_id = job["node_id"]
         site_id = job["site_id"]
         ts_for_insert_and_queue = pd.to_datetime(job["ts"])
-        print(f"\n---Processing job from node '{node_id}' and site '{site_id}' at {ts_for_insert_and_queue}")
+        print(
+            f"\n---Processing job from node '{node_id}' and site '{site_id}' at {ts_for_insert_and_queue}"
+        )
 
         latest_rows = lgbm.fetch_rows_upto(node_id, site_id, ts_for_insert_and_queue)  #
-        df_latest = lgbm.clean_dataframe(latest_rows)#250 latest rows of specific node_id and site_id
+        df_latest = lgbm.clean_dataframe(
+            latest_rows
+        )  # 250 latest rows of specific node_id and site_id
+        df_latest = lgbm.enforce_fixed_interval(df_latest, FREQ)
 
-        if (
-            len(df_latest) < config.getint("lgbm_model", "MIN_REQUIRED_ROWS")
-            or len(df_latest) < n_lags
+        if len(df_latest) < max(
+            config.getint("lgbm_model", "MIN_REQUIRED_ROWS"), n_lags
         ):
             print(
                 f"***Node '{node_id}' at site '{site_id}' has insufficient data ({len(df_latest)} rows). Skipping prediction."
@@ -83,19 +92,12 @@ def worker_loop(conn):
             )  #
             continue
 
-        df_latest = lgbm.enforce_fixed_interval(
-            df_latest, config["lgbm_model"]["FREQUENCY"]
-        )
-        print("\nDEBUG: DataFrame before prediction")
-        print(df_latest.tail(10))
-        print("Shape:", df_latest.shape, "\n")
-
         last_raw_ts = ts_for_insert_and_queue
         predict_ts, predict_value = lgbm.predict_next_step(
-            model_bundle=model_bundle, #trained model
-            df_recent=df_latest, #input data for prediction
-            last_raw_ts=last_raw_ts, #timestamp of last raw reading
-            n_lags=n_lags, #number of lag features for input to match training set
+            model_bundle=model_bundle,  # trained model
+            df_recent=df_latest,  # input data for prediction
+            last_raw_ts=last_raw_ts,  # timestamp of last raw reading
+            n_lags=n_lags,  # number of lag features for input to match training set
         )
 
         if predict_value is not None:
@@ -113,7 +115,9 @@ def worker_loop(conn):
                 )  #
                 continue
 
-            print(f"---Predicted {predict_value:.2f}°C for site_id {site_id} and node_id {node_id} at {predict_ts}")
+            print(
+                f"---Predicted {predict_value:.2f}°C for site_id {site_id} and node_id {node_id} at {predict_ts}"
+            )
 
             try:
                 cur = conn.cursor()
@@ -161,10 +165,12 @@ def worker_loop(conn):
                 df_all = df_all.set_index("timestamp")
 
                 df_clean = lgbm.clean_dataframe(df_all)
-                df_fixed = lgbm.enforce_fixed_interval(
-                    df_clean, config["lgbm_model"]["FREQUENCY"]
+                df_lagged = (
+                    df_clean.groupby(["node_name", "site_name"], group_keys=False)
+                    .apply(lambda g: lgbm.enforce_fixed_interval(g, FREQ))
+                    .groupby(["node_name", "site_name"], group_keys=False)
+                    .apply(lambda g: lgbm.make_lag_features(g, n_lags=n_lags))
                 )
-                df_lagged = lgbm.make_lag_features(df_fixed, n_lags=n_lags)
                 df_cap = lgbm.take_training_window(
                     df_lagged, config.getint("lgbm_model", "MIN_REQUIRED_TRAINSET")
                 )
@@ -180,7 +186,11 @@ def worker_loop(conn):
         else:
             print("[Prediction failed!]")
             lgbm.job_fail(
-                conn, node_id, site_id, ts_for_insert_and_queue, reason="Prediction step failed"
+                conn,
+                node_id,
+                site_id,
+                ts_for_insert_and_queue,
+                reason="Prediction step failed",
             )
 
 
