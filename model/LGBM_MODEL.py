@@ -31,15 +31,15 @@ def worker_loop(conn):
     # df_all = df_all.set_index("timestamp")
 
     df_clean = lgbm.clean_dataframe(rows, 0.1)
-    df_time = lgbm.add_time_features(df_clean)
     df_lagged = (
-        df_time.groupby(["node_name", "site_name"], group_keys=False)
+        df_clean.groupby(["node_name", "site_name"], group_keys=False)
         .apply(lambda g: lgbm.enforce_fixed_interval(g, FREQ))
         .groupby(["node_name", "site_name"], group_keys=False)
         .apply(lambda g: lgbm.make_lag_features(g, n_lags=n_lags))
     )
+    df_time = lgbm.add_time_features(df_lagged)
     df_cap = lgbm.take_training_window(
-        df_lagged, config.getint("lgbm_model", "MIN_REQUIRED_TRAINSET")
+        df_time, config.getint("lgbm_model", "MIN_REQUIRED_TRAINSET")
     )
 
     print("\nDEBUG: DataFrame before training")
@@ -92,11 +92,11 @@ def worker_loop(conn):
                 reason="Insufficient data for prediction",
             )  #
             continue
-
+        df_time = lgbm.add_time_features(df_latest)
         last_raw_ts = ts_for_insert_and_queue
         predict_ts, predict_value = lgbm.predict_next_step(
             model_bundle=model_bundle,  # trained model
-            df_recent=df_latest,  # input data for prediction
+            df_recent=df_time,  # input data for prediction
             last_raw_ts=last_raw_ts,  # timestamp of last raw reading
             n_lags=n_lags,  # number of lag features for input to match training set
         )
@@ -172,8 +172,9 @@ def worker_loop(conn):
                     .groupby(["node_name", "site_name"], group_keys=False)
                     .apply(lambda g: lgbm.make_lag_features(g, n_lags=n_lags))
                 )
+                df_time = lgbm.add_time_features(df_lagged)
                 df_cap = lgbm.take_training_window(
-                    df_lagged, config.getint("lgbm_model", "MIN_REQUIRED_TRAINSET")
+                    df_time, config.getint("lgbm_model", "MIN_REQUIRED_TRAINSET")
                 )
 
                 print("\nDEBUG: DataFrame before retraining")

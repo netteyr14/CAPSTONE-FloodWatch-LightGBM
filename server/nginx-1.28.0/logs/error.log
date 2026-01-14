@@ -1476,3 +1476,10 @@
 2026/01/14 21:53:46 [error] 9088#16484: *1 connect() failed (10061: No connection could be made because the target machine actively refused it) while connecting to upstream, client: 192.168.1.8, server: 192.168.1.6:8700, request: "POST /node/insert_queue HTTP/1.1", upstream: "http://192.168.1.6:5002/node/insert_queue", host: "192.168.1.6:8700"
 2026/01/14 21:53:50 [notice] 4040#1968: signal process started
 2026/01/14 22:02:55 [notice] 14560#15240: signal process started
+2026/01/15 01:03:38 [notice] 4576#16692: signal process started
+2026/01/15 01:35:12 [notice] 17020#3824: signal process started
+2026/01/15 01:35:12 [error] 2676#15380: *98 connect() failed (10061: No connection could be made because the target machine actively refused it) while connecting to upstream, client: 192.168.1.8, server: 192.168.1.6:8700, request: "POST /node/insert_queue HTTP/1.1", upstream: "http://192.168.1.6:5002/node/insert_queue", host: "192.168.1.6:8700"
+2026/01/15 01:35:14 [error] 2676#15380: *98 connect() failed (10061: No connection could be made because the target machine actively refused it) while connecting to upstream, client: 192.168.1.8, server: 192.168.1.6:8700, request: "POST /node/insert_queue HTTP/1.1", upstream: "http://192.168.1.6:5001/node/insert_queue", host: "192.168.1.6:8700"
+2026/01/15 01:36:49 [notice] 12956#13028: signal process started
+2026/01/15 01:36:49 [error] 12956#13028: CreateFile() "D:\CAPSTONE_SYSTEM\Backend\server\nginx-1.28.0/logs/nginx.pid" failed (2: The system cannot find the file specified)
+2026/01/15 02:12:19 [notice] 12344#10096: signal process started
