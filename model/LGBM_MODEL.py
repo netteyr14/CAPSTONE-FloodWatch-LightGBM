@@ -18,7 +18,7 @@ def worker_loop(conn):
     cur = conn.cursor(dictionary=True)
     cur.execute(
         """
-        SELECT TIMESTAMP, temperature, humidity, node_name, site_name, isactive
+        SELECT timestamp, temperature, humidity, node_name, site_name, isactive
         FROM vw_node_site_readings
         ORDER BY TIMESTAMP DESC; 
     """
@@ -26,13 +26,14 @@ def worker_loop(conn):
     rows = cur.fetchall()
     cur.close()
 
-    df_all = pd.DataFrame(rows)
-    df_all["timestamp"] = pd.to_datetime(df_all["timestamp"])
-    df_all = df_all.set_index("timestamp")
+    # df_all = pd.DataFrame(rows)
+    # # df_all["timestamp"] = pd.to_datetime(df_all["timestamp"])
+    # df_all = df_all.set_index("timestamp")
 
-    df_clean = lgbm.clean_dataframe(df_all)
+    df_clean = lgbm.clean_dataframe(rows, 0.1)
+    df_time = lgbm.add_time_features(df_clean)
     df_lagged = (
-        df_clean.groupby(["node_name", "site_name"], group_keys=False)
+        df_time.groupby(["node_name", "site_name"], group_keys=False)
         .apply(lambda g: lgbm.enforce_fixed_interval(g, FREQ))
         .groupby(["node_name", "site_name"], group_keys=False)
         .apply(lambda g: lgbm.make_lag_features(g, n_lags=n_lags))
@@ -73,7 +74,7 @@ def worker_loop(conn):
 
         latest_rows = lgbm.fetch_rows_upto(node_id, site_id, ts_for_insert_and_queue)  #
         df_latest = lgbm.clean_dataframe(
-            latest_rows
+            latest_rows, 0.5
         )  # 250 latest rows of specific node_id and site_id
         df_latest = lgbm.enforce_fixed_interval(df_latest, FREQ)
 
@@ -160,11 +161,11 @@ def worker_loop(conn):
                 rows = cur.fetchall()
                 cur.close()
 
-                df_all = pd.DataFrame(rows)
-                df_all["timestamp"] = pd.to_datetime(df_all["timestamp"])
-                df_all = df_all.set_index("timestamp")
+                # df_all = pd.DataFrame(rows)
+                # df_all["timestamp"] = pd.to_datetime(df_all["timestamp"])
+                # df_all = df_all.set_index("timestamp")
 
-                df_clean = lgbm.clean_dataframe(df_all)
+                df_clean = lgbm.clean_dataframe(rows, 0.5)
                 df_lagged = (
                     df_clean.groupby(["node_name", "site_name"], group_keys=False)
                     .apply(lambda g: lgbm.enforce_fixed_interval(g, FREQ))

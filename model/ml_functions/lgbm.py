@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import lightgbm as lgb
 from helpers.db_connection import pool
 import configparser
@@ -121,7 +122,7 @@ def job_fail(conn, node_id, site_id, ts, reason=None):
 
 
 # CLEANING / RESAMPLING
-def clean_dataframe(rows):
+def clean_dataframe(rows, min_temp_level):
     if rows is None or len(rows) == 0:
         empty_df = pd.DataFrame(
             columns=["temperature", "humidity", "node_name", "site_name"]
@@ -144,6 +145,8 @@ def clean_dataframe(rows):
     for c in ["node_name", "site_name"]:
         if c in df.columns:
             df[c] = df[c].astype("category")
+            
+    df = df[df["temperature"].abs() >= min_temp_level]
 
     df = df.dropna(subset=["temperature", "humidity"])
     return df
@@ -153,7 +156,7 @@ def enforce_fixed_interval(df, frequency):
     df = df.sort_index()
     df = df[~df.index.duplicated(keep="last")]  # removes duplicates pero iwan yung last
 
-    df = df.resample(frequency).agg(
+    df = df.resample(frequency.replace("1", "")).agg(
         {
             "temperature": "mean",
             "humidity": "mean",
@@ -332,3 +335,22 @@ def get_site_id_for_node(conn, node_id, ts_for_insert_and_queue):
         except Exception:
             pass
         return None
+
+def add_time_features(df):
+    """
+    Adds cyclical time features to give seasonal and daily context
+    df: DataFrame indexed by timestamp
+    """
+    df = df.copy()
+
+    # Hour of day
+    df["hour"] = df.index.hour
+    df["hour_sin"] = np.sin(2 * np.pi * df["hour"] / 24)
+    df["hour_cos"] = np.cos(2 * np.pi * df["hour"] / 24)
+
+    # Day of year
+    df["dayofyear"] = df.index.dayofyear
+    df["doy_sin"] = np.sin(2 * np.pi * df["dayofyear"] / 365)
+    df["doy_cos"] = np.cos(2 * np.pi * df["dayofyear"] / 365)
+
+    return df
