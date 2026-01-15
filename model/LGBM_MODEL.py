@@ -73,16 +73,18 @@ def worker_loop(conn):
         )
 
         latest_rows = lgbm.fetch_rows_upto(node_id, site_id, ts_for_insert_and_queue)  #
+        print(f"Fetched {len(latest_rows)} rows from DB for prediction.")
         df_latest = lgbm.clean_dataframe(
             latest_rows, 0.5
         )  # 250 latest rows of specific node_id and site_id
-        df_latest = lgbm.enforce_fixed_interval(df_latest, FREQ)
+        # df_latest = lgbm.enforce_fixed_interval(df_latest, FREQ)
+        # print(len(df_latest), "rows fetched for prediction.")
 
-        if len(df_latest) < max(
+        if len(latest_rows) < max(
             config.getint("lgbm_model", "MIN_REQUIRED_ROWS"), n_lags
         ):
             print(
-                f"***Node '{node_id}' at site '{site_id}' has insufficient data ({len(df_latest)} rows). Skipping prediction."
+                f"***Node '{node_id}' at site '{site_id}' has insufficient data ({len(latest_rows)} rows). Skipping prediction."
             )
             lgbm.job_fail(
                 conn,

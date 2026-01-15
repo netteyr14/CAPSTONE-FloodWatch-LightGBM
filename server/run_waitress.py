@@ -10,4 +10,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print(f"[INFO] Starting Waitress on port {args.port}...")
-    serve(app, host="192.168.1.6", port=args.port, threads=20)
+    serve(app, host="192.168.1.12", port=args.port, threads=20)

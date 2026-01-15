@@ -223,7 +223,9 @@ def train_model(df):
             df[col] = df[col].cat.set_categories(df[col].unique())
             categories_map[col] = df[col].cat.categories
 
-    X = df[lag_cols + cat_cols]
+    time_cols = ["hour_sin", "hour_cos", "doy_sin", "doy_cos"]
+    
+    X = df[lag_cols + time_cols + cat_cols]
     y = df["target_next_temp"]
 
     train_data = lgb.Dataset(X, label=y, categorical_feature=cat_cols)
@@ -252,14 +254,22 @@ def prepare_predict_input(
 ):  # builds the row input
     if len(df) < n_lags:
         raise ValueError("Not enough rows for lag prediction")
+
     feature_dict = {}
+    # Add lag features
     for lag_number in range(1, n_lags + 1):
-        feature_dict[f"temp_lag{lag_number}"] = float(
-            df["temperature"].iloc[-lag_number]
-        )
+        feature_dict[f"temp_lag{lag_number}"] = float(df["temperature"].iloc[-lag_number])
         feature_dict[f"hum_lag{lag_number}"] = float(df["humidity"].iloc[-lag_number])
 
     last = df.iloc[-1]
+
+    # Add time features from the last row
+    feature_dict["hour_sin"] = last["hour_sin"]
+    feature_dict["hour_cos"] = last["hour_cos"]
+    feature_dict["doy_sin"] = last["doy_sin"]
+    feature_dict["doy_cos"] = last["doy_cos"]
+
+    # Node and site
     feature_dict["node_name"] = last["node_name"]
     feature_dict["site_name"] = last["site_name"]
 
@@ -269,13 +279,15 @@ def prepare_predict_input(
         print("Error creating DataFrame:", e)
         return None
 
+    # Ensure categorical columns match training
     if categories_map:
         for col, cats in categories_map.items():
             X[col] = X[col].astype("category")
             X[col] = X[col].cat.set_categories(cats)
 
+    # Ensure column order matches training
     if feature_columns:
-        X = X[feature_columns]  # ensure exact order
+        X = X[feature_columns]
 
     return X
 
